@@ -1,4 +1,5 @@
 
+
 import re
 
 import requests
@@ -8,101 +9,104 @@ from urllib.parse import urljoin
 
 from django.core.validators import ValidationError, URLValidator
 
-hn_url = 'https://news.ycombinator.com'
+HN_URL = 'https://news.ycombinator.com'
 
-def _first_int_or_none(text):
-    try:
-        return int(re.search('\d+', text).group(0))
-    except (AttributeError, TypeError, OverflowError, ValueError):
-        ...
+USER_AGENT = 'certainly-not-python'
 
-def _points(text):
-    return _first_int_or_none(text)
+class _Schema:
+    keys = ['title', 'url', 'date', 'points', 'comments']
 
-def _comments(text):
-    return _first_int_or_none(text)
+    def as_dict(self):
+        items = ((key, getattr(self, key, lambda: None)()) for key in self.keys)
+        return {key: value for key, value in items if value is not None}
 
-def _date(text):
-    return text
+class Scraped(_Schema):
+    def __init__(self, tag):
+        self._tag = tag
+        self._anchors = self._tag.find_all('a')
+        self._title_tag = self._tag.parent.previous_sibling.find_all(class_='title')[-1]
 
-def _title(text):
-    return text
+    def points(self):
+        try:
+            points = self._tag.find_all('span')[0].text
+        except IndexError:
+            ...
 
-def _relative_url(text):
-    try:
-        path = re.match('^item\?id\=\d+$', text).group(0)
-        url = urljoin(hn_url, path)
-        URLValidator()(url)
-    except (AttributeError, ValidationError):
-        ...
-    else:
-        return url
+    def comments(self):
+        try:
+            return self._anchors[-1].text
+        except IndexError:
+            ...
 
-def _url(text):
-    try:
-        text = text.strip()
-        URLValidator()(text)
-    except ValidationError:
-        return _relative_url(text)
-    except AttributeError:
-        ...
-    else:
-        return text
+    def date(self):
+        try:
+            return self._anchors[0].next_sibling
+        except IndexError:
+            ...
+
+    def title(self):
+        return self._title_tag.a.text
+
+    def url(self):
+        return self._title_tag.a.attrs.get('href')
+
+class Validated(_Schema):
+    def __init__(self, data):
+        self.data = data
+
+    def points(self):
+        return self._first_int_or_none(self.data.get('points'))
+
+    def comments(self):
+        return self._first_int_or_none(self.data.get('comments'))
+
+    def date(self):
+        try:
+            return ''.join(char for char in self.data.get('date') if char.isalnum() or char.isspace()).strip()
+        except TypeError:
+            ...
+
+    def title(self):
+        return self.data.get('title')
+
+    def url(self):
+        try:
+            url = self.data.get('url').strip()
+            URLValidator()(url)
+        except ValidationError:
+            return self._relative_url(url)
+        except AttributeError:
+            ...
+        else:
+            return url
+
+    def _first_int_or_none(self, text):
+        try:
+            return int(re.search('\d+', text).group(0))
+        except (AttributeError, TypeError, OverflowError, ValueError):
+            ...
+
+    def _relative_url(self, url):
+        try:
+            path = re.match('^item\?id\=\d+$', url).group(0)
+            absolute_url = urljoin(HN_URL, path)
+            URLValidator()(absolute_url)
+        except (AttributeError, ValidationError):
+            ...
+        else:
+            return absolute_url
 
 def hn_data(html):
-    for tag in bs4.BeautifulSoup(html).find_all(class_='subtext'):
+    for submission_tag in bs4.BeautifulSoup(html).find_all(class_='subtext'):
+        scraped_data = Scraped(submission_tag).as_dict()
+        valid_data = Validated(scraped_data).as_dict()
+        yield valid_data
 
-        spans = tag.find_all('span')
-        as_ = tag.find_all('a')
+def get_html(path):
+    return requests.get(urljoin(HN_URL, path), headers={'User-Agent': USER_AGENT}).content.decode()
 
-        try:
-            comments = as_[-1].text
-        except IndexError:
-            comments = None
-
-        try:
-            date = as_[0].next_sibling
-        except IndexError:
-            date = None
-
-        try:
-            points = spans[0].text
-        except IndexError:
-            points = None
-
-        title_tag = tag.parent.previous_sibling.find_all(class_='title')[-1]
-        url = title_tag.a.attrs.get('href')
-        title = title_tag.a.text
-
-        data = {'title': _title(title),
-                'url': _url(url),
-                'points': _points(points),
-                'comments': _comments(comments),
-                'date': _date(date)}
-
-        yield {key: value for key, value
-                   in data.items() if value is not None}
-
-def _get_html(path):
-    return requests.get(urljoin(hn_url, path), headers={'User-Agent': 'foo'}).content.decode()
-
-def stats(path):
-    import statistics
-
-    html = _get_html(path)
-
-    data = list(hn_data(html))
-
-    def _ratios():
-        for article in data:
-            points = article.get('points', 0.0)
-            comments = article.get('comments', 0.0)
-            try:
-                yield points / comments
-            except ZeroDivisionError:
-                yield 0.0
-
-    def _rundown(name, data, indent=' ' * 4):
+def stats(summary, indent=' ' * 4):
+    def rundown(name, data):
         double = indent * 2
 
         print(indent, '{}:'.format(name))
@@ -112,50 +116,43 @@ def stats(path):
         print()
         print(double, 'min      :', min(data))
         print(double, 'max      :', max(data))
-        print(double, 'min of >0:', min(value for value in data if value > 0))
+        print(double, 'min of >0:', min((value for value in data if value > 0), default=float('nan')))
 
-    print(path)
-    print()
-    print('    articles:', len(data))
-    print()
+    for path, data in summary.items():
+        data = list(data)
 
-    _rundown('points', [article.get('points', 0.0) for article in data])
-    print()
-    _rundown('comments', [article.get('comments', 0.0) for article in data])
-    print()
-    _rundown('ratio', list(_ratios()))
-
-def rundown(paths):
-    for path in paths:
-        stats(path)
+        print(path)
+        print()
+        print(indent, 'articles:', len(data))
+        print()
+        rundown('points', [article.get('points', 0.0) for article in data])
+        print()
+        rundown('comments', [article.get('comments', 0.0) for article in data])
         print()
 
-def plot(paths):
-    import numpy
-    import matplotlib.pyplot as plt
+def plot(summary):
+    colors = 'rgbcmyk'
 
-    def lines():
-        for path in paths:
-            html = _get_html(path)
-            line = [(article.get('points', 0.0), article.get('comments', 0.0)) for article in hn_data(html)]
-            yield line
+    for i, (path, data) in enumerate(summary.items()):
+        line = [(article.get('points', 0.0), article.get('comments', 0.0)) for article in data]
+        xs, ys = (line[::2], line[1::2])
+        plt.scatter(xs, ys, label=path, color=colors[i % len(colors)])
 
     plt.xlabel('points')
     plt.ylabel('comments')
-
-    colors = ['red', 'green', 'yellow', 'orange', 'blue']
-
-    for i, (path, line) in enumerate(zip(paths, lines())):
-        xs, ys = zip(*line)
-
-        plt.scatter(xs, ys, color=colors[i % len(paths) - 1], label=path)
-
     plt.legend()
     plt.show()
 
 if __name__ == '__main__':
     paths = ['/news', '/news?p=2', '/newest', '/show', '/shownew']
-    paths = ['/news', '/newest', '/show']
-    #rundown(paths)
-    plot(paths)
+
+    summary = {path: hn_data(get_html(path)) for path in paths}
+
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        import statistics
+        stats(summary)
+    else:
+        plot(summary)
 
