@@ -149,10 +149,10 @@ def test():
 
     with open('test.html') as f:
         data = {'title'   : 'CUPS 2.0',
-                 'url'     : 'https://www.cups.org/documentation.php/doc-2.0/relnotes.html',
-                 'date'    : '2 hours ago',
-                 'comments': 11,
-                 'points'  : 68}
+                'url'     : 'https://www.cups.org/documentation.php/doc-2.0/relnotes.html',
+                'date'    : '2 hours ago',
+                'comments': 11,
+                'points'  : 68}
 
         assert [data] == list(hn_data(f.read()))
 
