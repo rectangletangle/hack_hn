@@ -1,5 +1,5 @@
 
-
+import collections
 import re
 
 import requests
@@ -28,7 +28,7 @@ class Scraped(_Schema):
 
     def points(self):
         try:
-            points = self._tag.find_all('span')[0].text
+            return self._tag.find_all('span')[0].text
         except IndexError:
             ...
 
@@ -97,8 +97,8 @@ class Validated(_Schema):
             return absolute_url
 
 def hn_data(html):
-    for submission_tag in bs4.BeautifulSoup(html).find_all(class_='subtext'):
-        scraped_data = Scraped(submission_tag).as_dict()
+    for article_tag in bs4.BeautifulSoup(html).find_all(class_='subtext'):
+        scraped_data = Scraped(article_tag).as_dict()
         valid_data = Validated(scraped_data).as_dict()
         yield valid_data
 
@@ -134,8 +134,9 @@ def plot(summary):
     colors = 'rgbcmyk'
 
     for i, (path, data) in enumerate(summary.items()):
-        line = [(article.get('points', 0.0), article.get('comments', 0.0)) for article in data]
-        xs, ys = (line[::2], line[1::2])
+        data = list(data)
+        xs = [article.get('points', 0.0)for article in data]
+        ys = [article.get('comments', 0.0) for article in data]
         plt.scatter(xs, ys, label=path, color=colors[i % len(colors)])
 
     plt.xlabel('points')
@@ -144,9 +145,9 @@ def plot(summary):
     plt.show()
 
 if __name__ == '__main__':
-    paths = ['/news', '/news?p=2', '/newest', '/show', '/shownew']
+    paths = ['/shownew', '/show', '/newest', '/news?p=2', '/news']
 
-    summary = {path: hn_data(get_html(path)) for path in paths}
+    summary = collections.OrderedDict((path, hn_data(get_html(path))) for path in paths)
 
     try:
         import matplotlib.pyplot as plt
