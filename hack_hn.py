@@ -135,7 +135,7 @@ def plot(summary):
 
     for i, (path, data) in enumerate(summary.items()):
         data = list(data)
-        xs = [article.get('points', 0.0)for article in data]
+        xs = [article.get('points', 0.0) for article in data]
         ys = [article.get('comments', 0.0) for article in data]
         plt.scatter(xs, ys, label=path, color=colors[i % len(colors)])
 
