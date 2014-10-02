@@ -102,7 +102,7 @@ def hn_data(html):
         valid_data = Validated(scraped_data).as_dict()
         yield valid_data
 
-def get_html(path):
+def get_html(path='/news'):
     return requests.get(urljoin(HN_URL, path), headers={'User-Agent': USER_AGENT}).text
 
 def stats(summary, indent=' ' * 4):
@@ -144,7 +144,21 @@ def plot(summary):
     plt.legend()
     plt.show()
 
+def test():
+    assert [] == list(hn_data(''))
+
+    with open('test.html') as f:
+        data = {'title'   : 'CUPS 2.0',
+                 'url'     : 'https://www.cups.org/documentation.php/doc-2.0/relnotes.html',
+                 'date'    : '2 hours ago',
+                 'comments': 11,
+                 'points'  : 68}
+
+        assert [data] == list(hn_data(f.read()))
+
 if __name__ == '__main__':
+    test()
+
     paths = ['/shownew', '/show', '/newest', '/news?p=2', '/news']
 
     summary = collections.OrderedDict((path, hn_data(get_html(path))) for path in paths)
