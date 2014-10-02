@@ -103,7 +103,7 @@ def hn_data(html):
         yield valid_data
 
 def get_html(path):
-    return requests.get(urljoin(HN_URL, path), headers={'User-Agent': USER_AGENT}).content.decode()
+    return requests.get(urljoin(HN_URL, path), headers={'User-Agent': USER_AGENT}).text
 
 def stats(summary, indent=' ' * 4):
     def rundown(name, data):
